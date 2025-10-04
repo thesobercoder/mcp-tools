@@ -145,31 +145,16 @@ Examples:
 };
 
 // Helper functions
-const pathExists = async (fsPath: string): Promise<boolean> =>
-  await access(fsPath)
+const pathExists = (fsPath: string): Promise<boolean> =>
+  access(fsPath)
     .then(() => true)
     .catch(() => false);
 
-const isDirectory = async (fsPath: string): Promise<boolean> => {
-  const stats = await Bun.file(fsPath).stat();
-  return stats.isDirectory();
-};
-
-const readFileContent = async (fsPath: string): Promise<string> =>
-  await Bun.file(fsPath).text();
+const getStats = (fsPath: string) => Bun.file(fsPath).stat();
 
 const writeFile = async (fsPath: string, content: string): Promise<void> => {
   await mkdir(dirname(fsPath), { recursive: true });
   await Bun.write(fsPath, content);
-};
-
-const extractLineRange = (
-  content: string,
-  start: number,
-  end: number
-): string => {
-  const lines = content.split("\n");
-  return lines.slice(start - 1, end).join("\n");
 };
 
 // Recursive directory listing
@@ -206,12 +191,17 @@ const handleView = async (
   const fsPath = toFsPath(path!);
   assert(await pathExists(fsPath), `Path does not exist: ${path}`);
 
-  if (await isDirectory(fsPath)) {
+  const stats = await getStats(fsPath);
+  if (stats.isDirectory()) {
     return await listDirectory(fsPath);
   }
 
-  const content = await readFileContent(fsPath);
-  return view_range ? extractLineRange(content, ...view_range) : content;
+  const content = await Bun.file(fsPath).text();
+  if (view_range) {
+    const [start, end] = view_range;
+    return content.split("\n").slice(start - 1, end).join("\n");
+  }
+  return content;
 };
 
 const handleCreate = async (
@@ -238,12 +228,10 @@ const handleStrReplace = async (
   const fsPath = toFsPath(path!);
   assert(await pathExists(fsPath), `File does not exist: ${path}`);
 
-  const content = await readFileContent(fsPath);
+  const content = await Bun.file(fsPath).text();
   assert(content.includes(old_str!), `String not found in file: "${old_str}"`);
 
-  const newContent = content.replace(old_str!, new_str!);
-  await Bun.write(fsPath, newContent);
-
+  await writeFile(fsPath, content.replace(old_str!, new_str!));
   return `Replaced in ${path}`;
 };
 
@@ -259,12 +247,10 @@ const handleInsert = async (
   const fsPath = toFsPath(path!);
   assert(await pathExists(fsPath), `File does not exist: ${path}`);
 
-  const content = await readFileContent(fsPath);
-  const lines = content.split("\n");
+  const lines = (await Bun.file(fsPath).text()).split("\n");
   lines.splice(insert_line! - 1, 0, insert_text!);
 
-  await Bun.write(fsPath, lines.join("\n"));
-
+  await writeFile(fsPath, lines.join("\n"));
   return `Inserted at line ${insert_line} in ${path}`;
 };
 
@@ -274,7 +260,7 @@ const handleDelete = async (path: string | undefined): Promise<string> => {
   const fsPath = toFsPath(path!);
   assert(await pathExists(fsPath), `Path does not exist: ${path}`);
 
-  const isDir = await isDirectory(fsPath);
+  const isDir = (await getStats(fsPath)).isDirectory();
   await rm(fsPath, { recursive: true, force: true });
 
   return `Deleted ${isDir ? "directory" : "file"}: ${path}`;
@@ -317,27 +303,18 @@ export default async function memory(params: InferSchema<typeof schema>) {
     new_path,
   } = params;
 
-  try {
-    switch (command) {
-      case "view":
-        return await handleView(path, view_range);
-      case "create":
-        return await handleCreate(path, file_text);
-      case "str_replace":
-        return await handleStrReplace(path, old_str, new_str);
-      case "insert":
-        return await handleInsert(path, insert_line, insert_text);
-      case "delete":
-        return await handleDelete(path);
-      case "rename":
-        return await handleRename(old_path, new_path);
-      default:
-        throw new Error(`Unknown command: ${command}`);
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Memory operation failed: ${error.message}`);
-    }
-    throw error;
+  switch (command) {
+    case "view":
+      return await handleView(path, view_range);
+    case "create":
+      return await handleCreate(path, file_text);
+    case "str_replace":
+      return await handleStrReplace(path, old_str, new_str);
+    case "insert":
+      return await handleInsert(path, insert_line, insert_text);
+    case "delete":
+      return await handleDelete(path);
+    case "rename":
+      return await handleRename(old_path, new_path);
   }
 }
