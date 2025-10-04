@@ -44,19 +44,39 @@ Each component exports:
 
 ### Adding New Tools
 
-To add a new tool, create a file in `src/tools/` with:
+To add a new tool, create a file in `src/tools/` following this exact pattern:
+
+**File Structure:**
+1. Imports
+2. Constants and helper functions (business logic)
+3. Tool schema declaration (`const schema = {...}`)
+4. Tool metadata declaration (`const metadata: ToolMetadata = {...}`)
+5. Tool implementation (`const handler = async (params) => {...}`)
+6. Exports at the bottom
+
+**Template:**
 
 ```typescript
-import { z } from "zod";
 import { type InferSchema, type ToolMetadata } from "xmcp";
+import { z } from "zod";
 
-export const schema = {
+// Constants and helpers
+const SOME_CONSTANT = "value";
+
+const helperFunction = (param: string): string => {
+  // Helper logic
+  return param;
+};
+
+// Tool schema
+const schema = {
   param: z.string().describe("Parameter description"),
 };
 
-export const metadata: ToolMetadata = {
+// Tool metadata
+const metadata: ToolMetadata = {
   name: "tool-name",
-  description: "Tool description",
+  description: "Tool description with usage examples",
   annotations: {
     title: "Tool Title",
     readOnlyHint: false,
@@ -65,11 +85,22 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function toolName({ param }: InferSchema<typeof schema>) {
+// Tool implementation
+const handler = async (params: InferSchema<typeof schema>) => {
+  const { param } = params;
   // Implementation
   return "result";
-}
+};
+
+export { metadata, schema };
+export default handler;
 ```
+
+**Key Conventions:**
+- All functions use `const` with arrow functions
+- Schema and metadata declared before implementation
+- Implementation function named `handler` (not the tool name)
+- Exports grouped at the bottom: named exports first, default export last
 
 The tool will be auto-discovered and registered on server start.
 

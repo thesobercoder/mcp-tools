@@ -39,19 +39,26 @@ src/
 
 ## Adding New Tools
 
-Create a new file in `src/tools/`:
+Create a new file in `src/tools/` following this pattern:
 
 ```typescript
-import { z } from "zod";
 import { type InferSchema, type ToolMetadata } from "xmcp";
+import { z } from "zod";
 
-export const schema = {
+// Constants and helpers
+const helperFunction = (param: string): string => {
+  return param;
+};
+
+// Tool schema
+const schema = {
   param: z.string().describe("Parameter description"),
 };
 
-export const metadata: ToolMetadata = {
+// Tool metadata
+const metadata: ToolMetadata = {
   name: "tool-name",
-  description: "Tool description",
+  description: "Tool description with usage examples",
   annotations: {
     title: "Tool Title",
     readOnlyHint: false,
@@ -60,11 +67,22 @@ export const metadata: ToolMetadata = {
   },
 };
 
-export default async function toolName({ param }: InferSchema<typeof schema>) {
+// Tool implementation
+const handler = async (params: InferSchema<typeof schema>) => {
+  const { param } = params;
   // Implementation
   return "result";
-}
+};
+
+export { metadata, schema };
+export default handler;
 ```
+
+**Conventions:**
+- Use `const` with arrow functions
+- Declare schema and metadata before implementation
+- Name implementation function `handler`
+- Group exports at the bottom
 
 The tool will be automatically discovered and registered on server start.
 

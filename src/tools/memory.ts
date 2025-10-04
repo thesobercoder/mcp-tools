@@ -9,17 +9,18 @@ import { z } from "zod";
 const MEMORIES_ROOT = join(homedir(), ".mcp", "memories");
 
 // Helper to translate /memories path to actual filesystem path
-function toFsPath(virtualPath: string): string {
+const toFsPath = (virtualPath: string): string => {
   const relativePath = virtualPath.replace(/^\/memories\/?/, "");
   return join(MEMORIES_ROOT, relativePath);
-}
+};
 
 // Helper to translate filesystem path back to /memories path
-function toVirtualPath(fsPath: string): string {
+const toVirtualPath = (fsPath: string): string => {
   const rel = relative(MEMORIES_ROOT, fsPath);
   return `/memories/${rel}`;
-}
+};
 
+// Path validation schema (used in tool schema)
 const pathLike = z
   .string()
   .trim()
@@ -37,143 +38,6 @@ const pathLike = z
       "Path must not contain URL-encoded traversal sequences like %2e%2e or %2f",
   });
 
-// Define the schema for tool parameters
-export const schema = {
-  command: z
-    .enum(["view", "create", "str_replace", "insert", "delete", "rename"])
-    .describe(
-      `The sub-command to execute. Supported commands:
--  "view": List memory blocks or view specific block content
--  "create": Create a new memory block
--  "str_replace": Replace text in a memory block
--  "insert": Insert text at a specific line in a memory block
--  "delete": Delete a memory block
--  "rename": Rename a memory block`
-    ),
-  path: pathLike
-    .optional()
-    .describe(
-      "Target filesystem path for single-path commands (applicable to: view, create, str_replace, insert, delete). Must be inside /memories. For rename use old_path/new_path."
-    ),
-  view_range: z
-    .tuple([z.number().int().min(1), z.number().int().min(1)])
-    .optional()
-    .describe(
-      "Optional inclusive line range to view: [startLine, endLine] (1-based). Applicable to: view. end must be >= start."
-    ),
-  file_text: z
-    .string()
-    .optional()
-    .describe(
-      "File content to write for create (will create or overwrite). Applicable to: create."
-    ),
-  old_str: z
-    .string()
-    .optional()
-    .describe("Substring to search for (applicable to: str_replace)."),
-  new_str: z
-    .string()
-    .optional()
-    .describe("Replacement string (applicable to: str_replace)."),
-  insert_line: z
-    .number()
-    .int()
-    .min(1)
-    .optional()
-    .describe(
-      "1-based line number at which to insert text (applicable to: insert)."
-    ),
-  insert_text: z
-    .string()
-    .optional()
-    .describe(
-      "Text to insert at insert_line (applicable to: insert). Include trailing newline if desired."
-    ),
-  old_path: pathLike
-    .optional()
-    .describe(
-      "Source path for rename/move operations (applicable to: rename). Must be inside /memories."
-    ),
-  new_path: pathLike
-    .optional()
-    .describe(
-      "Destination path for rename/move operations (applicable to: rename). Must be inside /memories."
-    ),
-};
-
-// Define tool metadata
-export const metadata: ToolMetadata = {
-  name: "memory",
-  description: `Persistent storage for memory across conversation sessions. Use this to remember user preferences, project context, and important facts.
-
-CRITICAL FIRST STEP:
-Before responding to ANY new conversation, you MUST view /memories to check for existing context:
-    memory("view", path="/memories")
-
-This ensures you don't miss important user preferences or context from previous sessions.
-
-WHEN TO USE THIS TOOL:
-✓ At conversation start: ALWAYS check /memories first (see above)
-✓ Learning preferences: User mentions coding style, communication preferences, or project details
-✓ After milestones: Completing significant tasks or making important decisions
-✓ Before context loss: Long conversations where information might be lost
-✓ Discovering facts: User reveals persistent information about themselves or their projects
-
-WHAT TO STORE:
-✓ User preferences (e.g., "prefers functional programming", "uses Bun for TypeScript projects")
-✓ Project context (file paths, architecture decisions, naming conventions)
-✓ Persistent facts that help future conversations
-✗ Conversation transcripts or message history
-✗ Temporary state or throwaway information
-
-ORGANIZATION TIPS:
-- Files can be at ANY depth: /memories/file.md, /memories/projects/web/notes.md, etc.
-- Use subdirectories to organize: /memories/preferences/, /memories/projects/, etc.
-- Use descriptive filenames: user_preferences.md, project_context.md
-- REUSE existing files: Always prefer updating existing files over creating new ones
-- PROACTIVELY DELETE: Remove outdated or obsolete files to keep memory clean
-- Consolidate related information into single files rather than scattering across multiple files
-- Keep files organized and coherent
-
-WORKFLOW (IMPORTANT):
-- ALWAYS use "view" BEFORE "str_replace" or "insert" to see exact file content
-- "str_replace" requires EXACT text from file (use "view" first to get it)
-- For new files: use "create"
-- For existing files: use "view" then "str_replace" or "insert"
-
-Examples:
-
-Start of conversation - check for context:
-    memory("view", path="/memories")
-
-Create new preference file:
-    memory("create", path="/memories/user_preferences.md", file_text="# User Preferences\\n\\n- Prefers TypeScript\\n- Uses Bun runtime")
-
-Update existing file (two-step):
-    1. memory("view", path="/memories/user_preferences.md")
-    2. memory("str_replace", path="/memories/user_preferences.md", old_str="- Uses Bun runtime", new_str="- Uses Bun runtime\\n- Prefers functional style")
-
-View specific file:
-    memory("view", path="/memories/project_context.md")
-
-Insert at line (after viewing):
-    memory("insert", path="/memories/notes.md", insert_line=5, insert_text="## New Section\\n")
-
-Delete outdated file:
-    memory("delete", path="/memories/old_notes.md")
-
-Rename for clarity:
-    memory("rename", old_path="/memories/temp.md", new_path="/memories/user_info.md")
-`,
-  annotations: {
-    title: "Memory Management Tool",
-    readOnlyHint: false,
-    destructiveHint: true,
-    idempotentHint: false,
-    openWorldHint: false,
-  },
-};
-
 // Helper functions
 const pathExists = (fsPath: string): Promise<boolean> =>
   access(fsPath)
@@ -188,7 +52,7 @@ const writeFile = async (fsPath: string, content: string): Promise<void> => {
 };
 
 // Recursive directory listing
-async function listDirectory(fsPath: string): Promise<string> {
+const listDirectory = async (fsPath: string): Promise<string> => {
   if (!(await pathExists(fsPath))) {
     return "Directory is empty or does not exist.";
   }
@@ -209,7 +73,7 @@ async function listDirectory(fsPath: string): Promise<string> {
 
   await walk(fsPath);
   return entries.length > 0 ? entries.join("\n") : "No files found.";
-}
+};
 
 // Command handlers
 const handleView = async (
@@ -319,8 +183,145 @@ const handleRename = async (
   return `Renamed: ${old_path} → ${new_path}`;
 };
 
+// Tool schema
+const schema = {
+  command: z
+    .enum(["view", "create", "str_replace", "insert", "delete", "rename"])
+    .describe(
+      `The sub-command to execute. Supported commands:
+-  "view": List memory blocks or view specific block content
+-  "create": Create a new memory block
+-  "str_replace": Replace text in a memory block
+-  "insert": Insert text at a specific line in a memory block
+-  "delete": Delete a memory block
+-  "rename": Rename a memory block`
+    ),
+  path: pathLike
+    .optional()
+    .describe(
+      "Target filesystem path for single-path commands (applicable to: view, create, str_replace, insert, delete). Must be inside /memories. For rename use old_path/new_path."
+    ),
+  view_range: z
+    .tuple([z.number().int().min(1), z.number().int().min(1)])
+    .optional()
+    .describe(
+      "Optional inclusive line range to view: [startLine, endLine] (1-based). Applicable to: view. end must be >= start."
+    ),
+  file_text: z
+    .string()
+    .optional()
+    .describe(
+      "File content to write for create (will create or overwrite). Applicable to: create."
+    ),
+  old_str: z
+    .string()
+    .optional()
+    .describe("Substring to search for (applicable to: str_replace)."),
+  new_str: z
+    .string()
+    .optional()
+    .describe("Replacement string (applicable to: str_replace)."),
+  insert_line: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      "1-based line number at which to insert text (applicable to: insert)."
+    ),
+  insert_text: z
+    .string()
+    .optional()
+    .describe(
+      "Text to insert at insert_line (applicable to: insert). Include trailing newline if desired."
+    ),
+  old_path: pathLike
+    .optional()
+    .describe(
+      "Source path for rename/move operations (applicable to: rename). Must be inside /memories."
+    ),
+  new_path: pathLike
+    .optional()
+    .describe(
+      "Destination path for rename/move operations (applicable to: rename). Must be inside /memories."
+    ),
+};
+
+// Tool metadata
+const metadata: ToolMetadata = {
+  name: "memory",
+  description: `Persistent storage for memory across conversation sessions. Use this to remember user preferences, project context, and important facts.
+
+CRITICAL FIRST STEP:
+Before responding to ANY new conversation, you MUST view /memories to check for existing context:
+    memory("view", path="/memories")
+
+This ensures you don't miss important user preferences or context from previous sessions.
+
+WHEN TO USE THIS TOOL:
+✓ At conversation start: ALWAYS check /memories first (see above)
+✓ Learning preferences: User mentions coding style, communication preferences, or project details
+✓ After milestones: Completing significant tasks or making important decisions
+✓ Before context loss: Long conversations where information might be lost
+✓ Discovering facts: User reveals persistent information about themselves or their projects
+
+WHAT TO STORE:
+✓ User preferences (e.g., "prefers functional programming", "uses Bun for TypeScript projects")
+✓ Project context (file paths, architecture decisions, naming conventions)
+✓ Persistent facts that help future conversations
+✗ Conversation transcripts or message history
+✗ Temporary state or throwaway information
+
+ORGANIZATION TIPS:
+- Files can be at ANY depth: /memories/file.md, /memories/projects/web/notes.md, etc.
+- Use subdirectories to organize: /memories/preferences/, /memories/projects/, etc.
+- Use descriptive filenames: user_preferences.md, project_context.md
+- REUSE existing files: Always prefer updating existing files over creating new ones
+- PROACTIVELY DELETE: Remove outdated or obsolete files to keep memory clean
+- Consolidate related information into single files rather than scattering across multiple files
+- Keep files organized and coherent
+
+WORKFLOW (IMPORTANT):
+- ALWAYS use "view" BEFORE "str_replace" or "insert" to see exact file content
+- "str_replace" requires EXACT text from file (use "view" first to get it)
+- For new files: use "create"
+- For existing files: use "view" then "str_replace" or "insert"
+
+Examples:
+
+Start of conversation - check for context:
+    memory("view", path="/memories")
+
+Create new preference file:
+    memory("create", path="/memories/user_preferences.md", file_text="# User Preferences\\n\\n- Prefers TypeScript\\n- Uses Bun runtime")
+
+Update existing file (two-step):
+    1. memory("view", path="/memories/user_preferences.md")
+    2. memory("str_replace", path="/memories/user_preferences.md", old_str="- Uses Bun runtime", new_str="- Uses Bun runtime\\n- Prefers functional style")
+
+View specific file:
+    memory("view", path="/memories/project_context.md")
+
+Insert at line (after viewing):
+    memory("insert", path="/memories/notes.md", insert_line=5, insert_text="## New Section\\n")
+
+Delete outdated file:
+    memory("delete", path="/memories/old_notes.md")
+
+Rename for clarity:
+    memory("rename", old_path="/memories/temp.md", new_path="/memories/user_info.md")
+`,
+  annotations: {
+    title: "Memory Management Tool",
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
+};
+
 // Tool implementation
-export default async function memory(params: InferSchema<typeof schema>) {
+const handler = async (params: InferSchema<typeof schema>) => {
   await mkdir(MEMORIES_ROOT, { recursive: true });
 
   const {
@@ -350,4 +351,7 @@ export default async function memory(params: InferSchema<typeof schema>) {
     case "rename":
       return await handleRename(old_path, new_path);
   }
-}
+};
+
+export { metadata, schema };
+export default handler;
