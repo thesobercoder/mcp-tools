@@ -1,5 +1,23 @@
+import { rename as fsRename, mkdir, readdir, rm } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join, relative } from "path";
 import { type InferSchema, type ToolMetadata } from "xmcp";
 import { z } from "zod";
+
+// Map /memories to $HOME/.mcp/memories
+const MEMORIES_ROOT = join(homedir(), ".mcp", "memories");
+
+// Helper to translate /memories path to actual filesystem path
+function toFsPath(virtualPath: string): string {
+  const relativePath = virtualPath.replace(/^\/memories\/?/, "");
+  return join(MEMORIES_ROOT, relativePath);
+}
+
+// Helper to translate filesystem path back to /memories path
+function toVirtualPath(fsPath: string): string {
+  const rel = relative(MEMORIES_ROOT, fsPath);
+  return `/memories/${rel}`;
+}
 
 const pathLike = z
   .string()
@@ -86,34 +104,35 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "memory",
   description: `Memory management tool with various sub-commands for memory block operations.
+All memory files are stored as Markdown (.md) files.
 
 Examples:
 -   List all memory blocks:
     memory("view", path="/memories")
 
 -   View specific memory block content:
-    memory("view", path="/memories/user_preferences")
+    memory("view", path="/memories/user_preferences.md")
 
 -   View first 10 lines of a memory block:
-    memory("view", path="/memories/user_preferences", view_range=[1,10])
+    memory("view", path="/memories/user_preferences.md", view_range=[1,10])
 
 -   Replace text in a memory block:
-    memory("str_replace", path="/memories/user_preferences", old_str="theme: dark", new_str="theme: light")
+    memory("str_replace", path="/memories/user_preferences.md", old_str="theme: dark", new_str="theme: light")
 
 -   Insert text at line 5:
-    memory("insert", path="/memories/notes", insert_line=5, insert_text="New note here")
+    memory("insert", path="/memories/notes.md", insert_line=5, insert_text="New note here\\n")
 
 -   Delete a memory block:
-    memory("delete", path="/memories/old_notes")
+    memory("delete", path="/memories/old_notes.md")
 
 -   Rename a memory block:
-    memory("rename", old_path="/memories/temp", new_path="/memories/permanent")
+    memory("rename", old_path="/memories/temp.md", new_path="/memories/permanent.md")
 
 -   Create a memory block with starting text:
-    memory("create", path="/memories/coding_preferences", file_text="The user's coding preferences.")
+    memory("create", path="/memories/coding_preferences.md", file_text="# Coding Preferences\\n\\nThe user prefers TypeScript.")
 
 -   Create an empty memory block:
-    memory("create", path="/memories/coding_preferences")
+    memory("create", path="/memories/coding_preferences.md")
 `,
   annotations: {
     title: "Memory Management Tool",
@@ -124,7 +143,226 @@ Examples:
   },
 };
 
+// Recursive directory listing
+async function listDirectory(fsPath: string): Promise<string> {
+  const entries: string[] = [];
+
+  async function walk(currentPath: string) {
+    const items = await readdir(currentPath, { withFileTypes: true });
+    for (const item of items) {
+      const fullPath = join(currentPath, item.name);
+
+      if (item.isDirectory()) {
+        entries.push(toVirtualPath(fullPath) + "/");
+        await walk(fullPath);
+      } else {
+        entries.push(toVirtualPath(fullPath));
+      }
+    }
+  }
+
+  try {
+    await walk(fsPath);
+    return entries.length > 0 ? entries.join("\n") : "No files found.";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return "Directory is empty or does not exist.";
+    }
+    throw error;
+  }
+}
+
 // Tool implementation
-export default function memory({ command }: InferSchema<typeof schema>) {
-  return `Executing command: ${command}`;
+export default async function memory(params: InferSchema<typeof schema>) {
+  const {
+    command,
+    path,
+    view_range,
+    file_text,
+    old_str,
+    new_str,
+    insert_line,
+    insert_text,
+    old_path,
+    new_path,
+  } = params;
+
+  try {
+    // Ensure memories root exists
+    await mkdir(MEMORIES_ROOT, { recursive: true });
+
+    switch (command) {
+      case "view": {
+        if (!path) {
+          throw new Error("path is required for view command");
+        }
+
+        const fsPath = toFsPath(path);
+        const file = Bun.file(fsPath);
+
+        // Check if it's a directory
+        try {
+          const stats = await file.stat();
+          if (stats.isDirectory()) {
+            return await listDirectory(fsPath);
+          }
+        } catch {
+          // Not a file, might be directory without stat
+          try {
+            return await listDirectory(fsPath);
+          } catch {
+            throw new Error(`Path does not exist: ${path}`);
+          }
+        }
+
+        // It's a file - read contents
+        const content = await file.text();
+
+        if (view_range) {
+          const [start, end] = view_range;
+          const lines = content.split("\n");
+          const selectedLines = lines.slice(start - 1, end);
+          return selectedLines.join("\n");
+        }
+
+        return content;
+      }
+
+      case "create": {
+        if (!path) {
+          throw new Error("path is required for create command");
+        }
+
+        const fsPath = toFsPath(path);
+        const dir = dirname(fsPath);
+
+        // Ensure parent directory exists
+        await mkdir(dir, { recursive: true });
+
+        // Write file
+        await Bun.write(fsPath, file_text || "");
+
+        return `Created: ${path}`;
+      }
+
+      case "str_replace": {
+        if (!path) {
+          throw new Error("path is required for str_replace command");
+        }
+        if (old_str === undefined) {
+          throw new Error("old_str is required for str_replace command");
+        }
+        if (new_str === undefined) {
+          throw new Error("new_str is required for str_replace command");
+        }
+
+        const fsPath = toFsPath(path);
+        const file = Bun.file(fsPath);
+
+        if (!(await file.exists())) {
+          throw new Error(`File does not exist: ${path}`);
+        }
+
+        const content = await file.text();
+
+        if (!content.includes(old_str)) {
+          throw new Error(`String not found in file: "${old_str}"`);
+        }
+
+        const newContent = content.replace(old_str, new_str);
+        await Bun.write(fsPath, newContent);
+
+        return `Replaced in ${path}`;
+      }
+
+      case "insert": {
+        if (!path) {
+          throw new Error("path is required for insert command");
+        }
+        if (!insert_line) {
+          throw new Error("insert_line is required for insert command");
+        }
+        if (insert_text === undefined) {
+          throw new Error("insert_text is required for insert command");
+        }
+
+        const fsPath = toFsPath(path);
+        const file = Bun.file(fsPath);
+
+        if (!(await file.exists())) {
+          throw new Error(`File does not exist: ${path}`);
+        }
+
+        const content = await file.text();
+        const lines = content.split("\n");
+
+        // Insert at specified line (1-based)
+        lines.splice(insert_line - 1, 0, insert_text);
+
+        await Bun.write(fsPath, lines.join("\n"));
+
+        return `Inserted at line ${insert_line} in ${path}`;
+      }
+
+      case "delete": {
+        if (!path) {
+          throw new Error("path is required for delete command");
+        }
+
+        const fsPath = toFsPath(path);
+        const file = Bun.file(fsPath);
+
+        try {
+          const stats = await file.stat();
+
+          if (stats.isDirectory()) {
+            // Remove directory recursively
+            await rm(fsPath, { recursive: true, force: true });
+            return `Deleted directory: ${path}`;
+          } else {
+            // Remove file
+            await rm(fsPath);
+            return `Deleted file: ${path}`;
+          }
+        } catch {
+          throw new Error(`Path does not exist: ${path}`);
+        }
+      }
+
+      case "rename": {
+        if (!old_path) {
+          throw new Error("old_path is required for rename command");
+        }
+        if (!new_path) {
+          throw new Error("new_path is required for rename command");
+        }
+
+        const oldFsPath = toFsPath(old_path);
+        const newFsPath = toFsPath(new_path);
+
+        // Ensure source exists
+        const oldFile = Bun.file(oldFsPath);
+        if (!(await oldFile.exists())) {
+          throw new Error(`Source path does not exist: ${old_path}`);
+        }
+
+        // Ensure destination parent directory exists
+        const newDir = dirname(newFsPath);
+        await mkdir(newDir, { recursive: true });
+
+        // Rename/move
+        await fsRename(oldFsPath, newFsPath);
+
+        return `Renamed: ${old_path} → ${new_path}`;
+      }
+
+      default:
+        throw new Error(`Unknown command: ${command}`);
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Memory operation failed: ${error.message}`);
+    }
+    throw error;
+  }
 }
