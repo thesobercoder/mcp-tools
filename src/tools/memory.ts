@@ -23,7 +23,13 @@ export const schema = {
   command: z
     .enum(["view", "create", "str_replace", "insert", "delete", "rename"])
     .describe(
-      "The command to execute. Determines which input fields are required and which will be used."
+      `The sub-command to execute. Supported commands:
+-  "view": List memory blocks or view specific block content
+-  "create": Create a new memory block
+-  "str_replace": Replace text in a memory block
+-  "insert": Insert text at a specific line in a memory block
+-  "delete": Delete a memory block
+-  "rename": Rename a memory block`
     ),
   path: pathLike
     .optional()
@@ -79,8 +85,36 @@ export const schema = {
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "memory",
-  description:
-    "Client-side memory tool for creating, reading, updating, renaming and deleting files inside the /memories directory. Used by the assistant to persist knowledge across conversations and resume work between sessions.",
+  description: `Memory management tool with various sub-commands for memory block operations.
+
+Examples:
+-   List all memory blocks:
+    memory("view", path="/memories")
+
+-   View specific memory block content:
+    memory("view", path="/memories/user_preferences")
+
+-   View first 10 lines of a memory block:
+    memory("view", path="/memories/user_preferences", view_range=[1,10])
+
+-   Replace text in a memory block:
+    memory("str_replace", path="/memories/user_preferences", old_str="theme: dark", new_str="theme: light")
+
+-   Insert text at line 5:
+    memory("insert", path="/memories/notes", insert_line=5, insert_text="New note here")
+
+-   Delete a memory block:
+    memory("delete", path="/memories/old_notes")
+
+-   Rename a memory block:
+    memory("rename", old_path="/memories/temp", new_path="/memories/permanent")
+
+-   Create a memory block with starting text:
+    memory("create", path="/memories/coding_preferences", file_text="The user's coding preferences.")
+
+-   Create an empty memory block:
+    memory("create", path="/memories/coding_preferences")
+`,
   annotations: {
     title: "Memory Management Tool",
     readOnlyHint: false,
