@@ -1,4 +1,5 @@
-import { rename as fsRename, mkdir, readdir, rm } from "fs/promises";
+import { access, rename as fsRename, mkdir, readdir, rm } from "fs/promises";
+import { strict as assert } from "node:assert";
 import { homedir } from "os";
 import { dirname, join, relative } from "path";
 import { type InferSchema, type ToolMetadata } from "xmcp";
@@ -143,37 +144,166 @@ Examples:
   },
 };
 
+// Helper functions
+const pathExists = async (fsPath: string): Promise<boolean> =>
+  await access(fsPath)
+    .then(() => true)
+    .catch(() => false);
+
+const isDirectory = async (fsPath: string): Promise<boolean> => {
+  const stats = await Bun.file(fsPath).stat();
+  return stats.isDirectory();
+};
+
+const readFileContent = async (fsPath: string): Promise<string> =>
+  await Bun.file(fsPath).text();
+
+const writeFile = async (fsPath: string, content: string): Promise<void> => {
+  await mkdir(dirname(fsPath), { recursive: true });
+  await Bun.write(fsPath, content);
+};
+
+const extractLineRange = (
+  content: string,
+  start: number,
+  end: number
+): string => {
+  const lines = content.split("\n");
+  return lines.slice(start - 1, end).join("\n");
+};
+
 // Recursive directory listing
 async function listDirectory(fsPath: string): Promise<string> {
+  if (!(await pathExists(fsPath))) {
+    return "Directory is empty or does not exist.";
+  }
+
   const entries: string[] = [];
 
-  async function walk(currentPath: string) {
+  const walk = async (currentPath: string): Promise<void> => {
     const items = await readdir(currentPath, { withFileTypes: true });
+
     for (const item of items) {
       const fullPath = join(currentPath, item.name);
+      const suffix = item.isDirectory() ? "/" : "";
+      entries.push(toVirtualPath(fullPath) + suffix);
 
-      if (item.isDirectory()) {
-        entries.push(toVirtualPath(fullPath) + "/");
-        await walk(fullPath);
-      } else {
-        entries.push(toVirtualPath(fullPath));
-      }
+      if (item.isDirectory()) await walk(fullPath);
     }
-  }
+  };
 
-  try {
-    await walk(fsPath);
-    return entries.length > 0 ? entries.join("\n") : "No files found.";
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return "Directory is empty or does not exist.";
-    }
-    throw error;
-  }
+  await walk(fsPath);
+  return entries.length > 0 ? entries.join("\n") : "No files found.";
 }
+
+// Command handlers
+const handleView = async (
+  path: string | undefined,
+  view_range?: [number, number]
+): Promise<string> => {
+  assert(path, "path is required for view command");
+
+  const fsPath = toFsPath(path!);
+  assert(await pathExists(fsPath), `Path does not exist: ${path}`);
+
+  if (await isDirectory(fsPath)) {
+    return await listDirectory(fsPath);
+  }
+
+  const content = await readFileContent(fsPath);
+  return view_range ? extractLineRange(content, ...view_range) : content;
+};
+
+const handleCreate = async (
+  path: string | undefined,
+  file_text?: string
+): Promise<string> => {
+  assert(path, "path is required for create command");
+
+  const fsPath = toFsPath(path!);
+  await writeFile(fsPath, file_text || "");
+
+  return `Created: ${path}`;
+};
+
+const handleStrReplace = async (
+  path: string | undefined,
+  old_str: string | undefined,
+  new_str: string | undefined
+): Promise<string> => {
+  assert(path, "path is required for str_replace command");
+  assert(old_str, "old_str is required for str_replace command");
+  assert(new_str, "new_str is required for str_replace command");
+
+  const fsPath = toFsPath(path!);
+  assert(await pathExists(fsPath), `File does not exist: ${path}`);
+
+  const content = await readFileContent(fsPath);
+  assert(content.includes(old_str!), `String not found in file: "${old_str}"`);
+
+  const newContent = content.replace(old_str!, new_str!);
+  await Bun.write(fsPath, newContent);
+
+  return `Replaced in ${path}`;
+};
+
+const handleInsert = async (
+  path: string | undefined,
+  insert_line: number | undefined,
+  insert_text: string | undefined
+): Promise<string> => {
+  assert(path, "path is required for insert command");
+  assert(insert_line, "insert_line is required for insert command");
+  assert(insert_text, "insert_text is required for insert command");
+
+  const fsPath = toFsPath(path!);
+  assert(await pathExists(fsPath), `File does not exist: ${path}`);
+
+  const content = await readFileContent(fsPath);
+  const lines = content.split("\n");
+  lines.splice(insert_line! - 1, 0, insert_text!);
+
+  await Bun.write(fsPath, lines.join("\n"));
+
+  return `Inserted at line ${insert_line} in ${path}`;
+};
+
+const handleDelete = async (path: string | undefined): Promise<string> => {
+  assert(path, "path is required for delete command");
+
+  const fsPath = toFsPath(path!);
+  assert(await pathExists(fsPath), `Path does not exist: ${path}`);
+
+  const isDir = await isDirectory(fsPath);
+  await rm(fsPath, { recursive: true, force: true });
+
+  return `Deleted ${isDir ? "directory" : "file"}: ${path}`;
+};
+
+const handleRename = async (
+  old_path: string | undefined,
+  new_path: string | undefined
+): Promise<string> => {
+  assert(old_path, "old_path is required for rename command");
+  assert(new_path, "new_path is required for rename command");
+
+  const oldFsPath = toFsPath(old_path!);
+  const newFsPath = toFsPath(new_path!);
+
+  assert(
+    await pathExists(oldFsPath),
+    `Source path does not exist: ${old_path}`
+  );
+  await mkdir(dirname(newFsPath), { recursive: true });
+  await fsRename(oldFsPath, newFsPath);
+
+  return `Renamed: ${old_path} → ${new_path}`;
+};
 
 // Tool implementation
 export default async function memory(params: InferSchema<typeof schema>) {
+  await mkdir(MEMORIES_ROOT, { recursive: true });
+
   const {
     command,
     path,
@@ -188,174 +318,19 @@ export default async function memory(params: InferSchema<typeof schema>) {
   } = params;
 
   try {
-    // Ensure memories root exists
-    await mkdir(MEMORIES_ROOT, { recursive: true });
-
     switch (command) {
-      case "view": {
-        if (!path) {
-          throw new Error("path is required for view command");
-        }
-
-        const fsPath = toFsPath(path);
-        const file = Bun.file(fsPath);
-
-        // Check if it's a directory
-        try {
-          const stats = await file.stat();
-          if (stats.isDirectory()) {
-            return await listDirectory(fsPath);
-          }
-        } catch {
-          // Not a file, might be directory without stat
-          try {
-            return await listDirectory(fsPath);
-          } catch {
-            throw new Error(`Path does not exist: ${path}`);
-          }
-        }
-
-        // It's a file - read contents
-        const content = await file.text();
-
-        if (view_range) {
-          const [start, end] = view_range;
-          const lines = content.split("\n");
-          const selectedLines = lines.slice(start - 1, end);
-          return selectedLines.join("\n");
-        }
-
-        return content;
-      }
-
-      case "create": {
-        if (!path) {
-          throw new Error("path is required for create command");
-        }
-
-        const fsPath = toFsPath(path);
-        const dir = dirname(fsPath);
-
-        // Ensure parent directory exists
-        await mkdir(dir, { recursive: true });
-
-        // Write file
-        await Bun.write(fsPath, file_text || "");
-
-        return `Created: ${path}`;
-      }
-
-      case "str_replace": {
-        if (!path) {
-          throw new Error("path is required for str_replace command");
-        }
-        if (old_str === undefined) {
-          throw new Error("old_str is required for str_replace command");
-        }
-        if (new_str === undefined) {
-          throw new Error("new_str is required for str_replace command");
-        }
-
-        const fsPath = toFsPath(path);
-        const file = Bun.file(fsPath);
-
-        if (!(await file.exists())) {
-          throw new Error(`File does not exist: ${path}`);
-        }
-
-        const content = await file.text();
-
-        if (!content.includes(old_str)) {
-          throw new Error(`String not found in file: "${old_str}"`);
-        }
-
-        const newContent = content.replace(old_str, new_str);
-        await Bun.write(fsPath, newContent);
-
-        return `Replaced in ${path}`;
-      }
-
-      case "insert": {
-        if (!path) {
-          throw new Error("path is required for insert command");
-        }
-        if (!insert_line) {
-          throw new Error("insert_line is required for insert command");
-        }
-        if (insert_text === undefined) {
-          throw new Error("insert_text is required for insert command");
-        }
-
-        const fsPath = toFsPath(path);
-        const file = Bun.file(fsPath);
-
-        if (!(await file.exists())) {
-          throw new Error(`File does not exist: ${path}`);
-        }
-
-        const content = await file.text();
-        const lines = content.split("\n");
-
-        // Insert at specified line (1-based)
-        lines.splice(insert_line - 1, 0, insert_text);
-
-        await Bun.write(fsPath, lines.join("\n"));
-
-        return `Inserted at line ${insert_line} in ${path}`;
-      }
-
-      case "delete": {
-        if (!path) {
-          throw new Error("path is required for delete command");
-        }
-
-        const fsPath = toFsPath(path);
-        const file = Bun.file(fsPath);
-
-        try {
-          const stats = await file.stat();
-
-          if (stats.isDirectory()) {
-            // Remove directory recursively
-            await rm(fsPath, { recursive: true, force: true });
-            return `Deleted directory: ${path}`;
-          } else {
-            // Remove file
-            await rm(fsPath);
-            return `Deleted file: ${path}`;
-          }
-        } catch {
-          throw new Error(`Path does not exist: ${path}`);
-        }
-      }
-
-      case "rename": {
-        if (!old_path) {
-          throw new Error("old_path is required for rename command");
-        }
-        if (!new_path) {
-          throw new Error("new_path is required for rename command");
-        }
-
-        const oldFsPath = toFsPath(old_path);
-        const newFsPath = toFsPath(new_path);
-
-        // Ensure source exists
-        const oldFile = Bun.file(oldFsPath);
-        if (!(await oldFile.exists())) {
-          throw new Error(`Source path does not exist: ${old_path}`);
-        }
-
-        // Ensure destination parent directory exists
-        const newDir = dirname(newFsPath);
-        await mkdir(newDir, { recursive: true });
-
-        // Rename/move
-        await fsRename(oldFsPath, newFsPath);
-
-        return `Renamed: ${old_path} → ${new_path}`;
-      }
-
+      case "view":
+        return await handleView(path, view_range);
+      case "create":
+        return await handleCreate(path, file_text);
+      case "str_replace":
+        return await handleStrReplace(path, old_str, new_str);
+      case "insert":
+        return await handleInsert(path, insert_line, insert_text);
+      case "delete":
+        return await handleDelete(path);
+      case "rename":
+        return await handleRename(old_path, new_path);
       default:
         throw new Error(`Unknown command: ${command}`);
     }
