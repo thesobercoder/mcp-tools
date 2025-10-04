@@ -302,6 +302,18 @@ Update existing file (two-step):
 View specific file:
     memory("view", path="/memories/project_context.md")
 
+View file with line range (lines 1-10):
+    memory("view", path="/memories/project_context.md", view_range=[1, 10])
+
+View file partial (lines 15-25):
+    memory("view", path="/memories/notes.md", view_range=[15, 25])
+
+View nested directory:
+    memory("view", path="/memories/projects")
+
+View deeply nested file:
+    memory("view", path="/memories/projects/web/architecture.md")
+
 Insert at line (after viewing):
     memory("insert", path="/memories/notes.md", insert_line=5, insert_text="## New Section\\n")
 
