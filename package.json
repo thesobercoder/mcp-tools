@@ -1,0 +1,28 @@
+{
+  "name": "memory-server",
+  "version": "0.1.0",
+  "description": "An xmcp based memory server for Claude",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "xmcp build",
+    "dev": "xmcp dev",
+    "start": "bun dist/stdio.js"
+  },
+  "dependencies": {
+    "xmcp": "0.3.1",
+    "zod": "3.24.4"
+  },
+  "devDependencies": {
+    "@types/minimatch": "6.0.0",
+    "swc-loader": "0.2.6"
+  },
+  "main": "./dist/stdio.js",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "my-xmcp-app": "./dist/stdio.js"
+  }
+}
