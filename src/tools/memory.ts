@@ -104,36 +104,66 @@ export const schema = {
 // Define tool metadata
 export const metadata: ToolMetadata = {
   name: "memory",
-  description: `Memory management tool with various sub-commands for memory block operations.
-All memory files are stored as Markdown (.md) files.
+  description: `Persistent storage for memory across conversation sessions. Use this to remember user preferences, project context, and important facts.
 
-Examples:
--   List all memory blocks:
+CRITICAL FIRST STEP:
+Before responding to ANY new conversation, you MUST view /memories to check for existing context:
     memory("view", path="/memories")
 
--   View specific memory block content:
-    memory("view", path="/memories/user_preferences.md")
+This ensures you don't miss important user preferences or context from previous sessions.
 
--   View first 10 lines of a memory block:
-    memory("view", path="/memories/user_preferences.md", view_range=[1,10])
+WHEN TO USE THIS TOOL:
+✓ At conversation start: ALWAYS check /memories first (see above)
+✓ Learning preferences: User mentions coding style, communication preferences, or project details
+✓ After milestones: Completing significant tasks or making important decisions
+✓ Before context loss: Long conversations where information might be lost
+✓ Discovering facts: User reveals persistent information about themselves or their projects
 
--   Replace text in a memory block:
-    memory("str_replace", path="/memories/user_preferences.md", old_str="theme: dark", new_str="theme: light")
+WHAT TO STORE:
+✓ User preferences (e.g., "prefers functional programming", "uses Bun for TypeScript projects")
+✓ Project context (file paths, architecture decisions, naming conventions)
+✓ Persistent facts that help future conversations
+✗ Conversation transcripts or message history
+✗ Temporary state or throwaway information
 
--   Insert text at line 5:
-    memory("insert", path="/memories/notes.md", insert_line=5, insert_text="New note here\\n")
+ORGANIZATION TIPS:
+- Files can be at ANY depth: /memories/file.md, /memories/projects/web/notes.md, etc.
+- Use subdirectories to organize: /memories/preferences/, /memories/projects/, etc.
+- Use descriptive filenames: user_preferences.md, project_context.md
+- REUSE existing files: Always prefer updating existing files over creating new ones
+- PROACTIVELY DELETE: Remove outdated or obsolete files to keep memory clean
+- Consolidate related information into single files rather than scattering across multiple files
+- Keep files organized and coherent
 
--   Delete a memory block:
+WORKFLOW (IMPORTANT):
+- ALWAYS use "view" BEFORE "str_replace" or "insert" to see exact file content
+- "str_replace" requires EXACT text from file (use "view" first to get it)
+- For new files: use "create"
+- For existing files: use "view" then "str_replace" or "insert"
+
+Examples:
+
+Start of conversation - check for context:
+    memory("view", path="/memories")
+
+Create new preference file:
+    memory("create", path="/memories/user_preferences.md", file_text="# User Preferences\\n\\n- Prefers TypeScript\\n- Uses Bun runtime")
+
+Update existing file (two-step):
+    1. memory("view", path="/memories/user_preferences.md")
+    2. memory("str_replace", path="/memories/user_preferences.md", old_str="- Uses Bun runtime", new_str="- Uses Bun runtime\\n- Prefers functional style")
+
+View specific file:
+    memory("view", path="/memories/project_context.md")
+
+Insert at line (after viewing):
+    memory("insert", path="/memories/notes.md", insert_line=5, insert_text="## New Section\\n")
+
+Delete outdated file:
     memory("delete", path="/memories/old_notes.md")
 
--   Rename a memory block:
-    memory("rename", old_path="/memories/temp.md", new_path="/memories/permanent.md")
-
--   Create a memory block with starting text:
-    memory("create", path="/memories/coding_preferences.md", file_text="# Coding Preferences\\n\\nThe user prefers TypeScript.")
-
--   Create an empty memory block:
-    memory("create", path="/memories/coding_preferences.md")
+Rename for clarity:
+    memory("rename", old_path="/memories/temp.md", new_path="/memories/user_info.md")
 `,
   annotations: {
     title: "Memory Management Tool",
@@ -199,7 +229,10 @@ const handleView = async (
   const content = await Bun.file(fsPath).text();
   if (view_range) {
     const [start, end] = view_range;
-    return content.split("\n").slice(start - 1, end).join("\n");
+    return content
+      .split("\n")
+      .slice(start - 1, end)
+      .join("\n");
   }
   return content;
 };
