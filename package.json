@@ -1,7 +1,7 @@
 {
-  "name": "memory-server",
+  "name": "mcp-tools",
   "version": "0.1.0",
-  "description": "An xmcp based memory server for Claude",
+  "description": "An xmcp based MCP tools for Claude",
   "engines": {
     "node": ">=20.0.0"
   },

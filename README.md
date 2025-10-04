@@ -1,177 +1,82 @@
-# xmcp Application
+# MCP Tools Server
 
-This project was created with [create-xmcp-app](https://github.com/basementstudio/xmcp).
+An extensible MCP (Model Context Protocol) server providing various tools for Claude. Built with [xmcp](https://xmcp.dev) and optimized for Bun runtime.
+
+## Current Tools
+
+- **memory** - Persistent storage system for Claude across conversation sessions
+  - Store user preferences, project context, and facts
+  - Six commands: view, create, str_replace, insert, delete, rename
+  - Operates on virtual `/memories` filesystem mapped to `$HOME/.mcp/memories`
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
+# Development with hot reload
+bun run dev
+
+# Build for production
+bun run build
+
+# Run production server
+bun run start
 ```
 
-This will start the MCP server with the selected transport method.
+## Requirements
+
+- Bun runtime
+- Node.js ≥20.0.0
 
 ## Project Structure
 
-This project uses the structured approach where tools, prompts, and resources are automatically discovered from their respective directories:
+```
+src/
+├── tools/        # Tool implementations (auto-discovered)
+│   └── memory.ts # Memory tool implementation
+├── prompts/      # Prompt templates (auto-discovered)
+└── resources/    # Resource handlers (auto-discovered)
+```
 
-- `src/tools` - Tool definitions
-- `src/prompts` - Prompt templates
-- `src/resources` - Resource handlers
+## Adding New Tools
 
-### Tools
-
-Each tool is defined in its own file with the following structure:
+Create a new file in `src/tools/`:
 
 ```typescript
 import { z } from "zod";
 import { type InferSchema, type ToolMetadata } from "xmcp";
 
 export const schema = {
-  name: z.string().describe("The name of the user to greet"),
+  param: z.string().describe("Parameter description"),
 };
 
 export const metadata: ToolMetadata = {
-  name: "greet",
-  description: "Greet the user",
+  name: "tool-name",
+  description: "Tool description",
   annotations: {
-    title: "Greet the user",
-    readOnlyHint: true,
+    title: "Tool Title",
+    readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
   },
 };
 
-export default function greet({ name }: InferSchema<typeof schema>) {
-  return `Hello, ${name}!`;
+export default async function toolName({ param }: InferSchema<typeof schema>) {
+  // Implementation
+  return "result";
 }
 ```
 
-### Prompts
+The tool will be automatically discovered and registered on server start.
 
-Prompts are template definitions for AI interactions:
+## Configuration
 
-```typescript
-import { z } from "zod";
-import { type InferSchema, type PromptMetadata } from "xmcp";
-
-export const schema = {
-  code: z.string().describe("The code to review"),
-};
-
-export const metadata: PromptMetadata = {
-  name: "review-code",
-  title: "Review Code",
-  description: "Review code for best practices and potential issues",
-  role: "user",
-};
-
-export default function reviewCode({ code }: InferSchema<typeof schema>) {
-  return `Please review this code: ${code}`;
-}
-```
-
-### Resources
-
-Resources provide data or content with URI-based access:
-
-```typescript
-import { z } from "zod";
-import { type ResourceMetadata, type InferSchema } from "xmcp";
-
-export const schema = {
-  userId: z.string().describe("The ID of the user"),
-};
-
-export const metadata: ResourceMetadata = {
-  name: "user-profile",
-  title: "User Profile",
-  description: "User profile information",
-};
-
-export default function handler({ userId }: InferSchema<typeof schema>) {
-  return `Profile data for user ${userId}`;
-}
-```
-
-## Adding New Components
-
-### Adding New Tools
-
-To add a new tool:
-
-1. Create a new `.ts` file in the `src/tools` directory
-2. Export a `schema` object defining the tool parameters using Zod
-3. Export a `metadata` object with tool information
-4. Export a default function that implements the tool logic
-
-### Adding New Prompts
-
-To add a new prompt:
-
-1. Create a new `.ts` file in the `src/prompts` directory
-2. Export a `schema` object defining the prompt parameters using Zod
-3. Export a `metadata` object with prompt information and role
-4. Export a default function that returns the prompt text
-
-### Adding New Resources
-
-To add a new resource:
-
-1. Create a new `.ts` file in the `src/resources` directory
-2. Use folder structure to define the URI (e.g., `(users)/[userId]/profile.ts` → `users://{userId}/profile`)
-3. Export a `schema` object for dynamic parameters (optional for static resources)
-4. Export a `metadata` object with resource information
-5. Export a default function that returns the resource content
-
-## Building for Production
-
-To build your project for production:
+This server uses STDIO transport for MCP communication. The built server runs via:
 
 ```bash
-npm run build
-# or
-yarn build
-# or
-pnpm build
-```
-
-This will compile your TypeScript code and output it to the `dist` directory.
-
-## Running the Server
-
-You can run the server for the transport built with:
-
-- HTTP: `node dist/http.js`
-- STDIO: `node dist/stdio.js`
-
-Given the selected transport method, you will have a custom start script added to the `package.json` file.
-
-For HTTP:
-
-```bash
-npm run start-http
-# or
-yarn start-http
-# or
-pnpm start-http
-```
-
-For STDIO:
-
-```bash
-npm run start-stdio
-# or
-yarn start-stdio
-# or
-pnpm start-stdio
+bun dist/stdio.js
 ```
 
 ## Learn More
 
 - [xmcp Documentation](https://xmcp.dev/docs)
+- [MCP Protocol](https://modelcontextprotocol.io)
